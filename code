@@ -1,1 +1,75 @@
+ #Core Analytical Code
+# Note: The input dataset 'dat' is assumed to be already loaded in the R 
+# environment, containing all necessary variables from the secure platform.
+# Exposure variables ('sugar_ex_gro' for the 4-level groups and 
+# 'sugar_ex_gro_binary' for the binary exposure) are pre-defined based 
+# on the Methods and Table 2 footnote.
+
+library(dplyr)
+library(survival)
+library(mediation)
+
+
+##########Table 2#############
+# =========================================================================
+adj_vars2 <- c('sex', 'ethnic', 'birth_place', 'only_fm_diabetes_v0', 'only_fm_cvd_v0',
+               "north_decile", "east_decile", 'Real_Food_Price', 'birth_month', 'survey_yr', 'prs_ckd')
+adj_vars3 <- c('sex', 'ethnic', 'birth_place', 'only_fm_diabetes_v0', 'only_fm_cvd_v0',
+               "north_decile", "east_decile", 'Real_Food_Price', 'birth_month', 'survey_yr', 'prs_aki')
+
+model_ckd_table2 <- coxph(as.formula(paste("Surv(age_at_ckd, outcome_ckd) ~ sugar_ex_gro +", paste(adj_vars2, collapse = " + "))), data = dat)
+model_aki_table2 <- coxph(as.formula(paste("Surv(age_at_aki, outcome_aki) ~ sugar_ex_gro +", paste(adj_vars3, collapse = " + "))), data = dat)
+
+#########Sensitivity Analysis ##########
+ 
+dat_lt_ckd <- dat %>% filter(hist_ckd == FALSE)
+model_lt_ckd <- coxph(as.formula(paste("Surv(age_at_recruitment, age_at_ckd, outcome_ckd) ~ sugar_ex_gro +", paste(adj_vars2, collapse = " + "))), data = dat_lt_ckd)
+
+dat_lt_aki <- dat %>% filter(hist_aki == FALSE)
+model_lt_aki <- coxph(as.formula(paste("Surv(age_at_recruitment, age_at_aki, outcome_aki) ~ sugar_ex_gro +", paste(adj_vars3, collapse = " + "))), data = dat_lt_aki)
+
+########## Mediation Analyses########### 
+# Define the candidate mediators. 
+# Here, a representative subset (e.g., top phenotypic traits and metabolites) is shown. 
+# The full list of all screened mediators is provided in Tables S14 and S16.
+
+mediators <- c("BMR", "Fat_Free_Mass", "Apolipoprotein_A", "PUFA", "Omega_3", "Free_Cholesterol_IDL")
+
+# --- For CKD ---
+dat_med_ckd <- dat %>% filter(hist_ckd == FALSE)
+results_ckd <- list()
+set.seed(1000)
+
+for (i in mediators) {
+  med.fit <- lm(as.formula(paste(i, "~ sugar_ex_gro_binary +", paste(adj_vars2, collapse = " + "))), data = dat_med_ckd)
+  out.fit <- survreg(as.formula(paste("Surv(followup_ckd, outcome_ckd) ~ sugar_ex_gro_binary +", i, "+", paste(adj_vars2, collapse = " + "))), dist = "weibull", data = dat_med_ckd)
+  
+  med.out <- mediate(med.fit, out.fit, sims = 1000, treat = "sugar_ex_gro_binary", mediator = i)
+  results_ckd[[i]] <- med.out
+}
+
+ 
+df_ckd <- do.call(rbind, lapply(names(results_ckd), function(name) {
+  res <- results_ckd[[name]]
+  data.frame(Phenotype = name, ACME = res$d0, ADE = res$z0, Mediation_Proportion = res$n.avg, CI_Lower = res$n.avg.ci[1], CI_Upper = res$n.avg.ci[2])
+}))
+
+# --- For AKI ---
+dat_med_aki <- dat %>% filter(hist_aki == FALSE)
+results_aki <- list()
+set.seed(1000)
+
+for (i in mediators) {
+  med.fit <- lm(as.formula(paste(i, "~ sugar_ex_gro_binary +", paste(adj_vars3, collapse = " + "))), data = dat_med_aki)
+  out.fit <- survreg(as.formula(paste("Surv(followup_aki, outcome_aki) ~ sugar_ex_gro_binary +", i, "+", paste(adj_vars3, collapse = " + "))), dist = "weibull", data = dat_med_aki)
+  
+  med.out <- mediate(med.fit, out.fit, sims = 1000, treat = "sugar_ex_gro_binary", mediator = i)
+  results_aki[[i]] <- med.out
+}
+
+ 
+df_aki <- do.call(rbind, lapply(names(results_aki), function(name) {
+  res <- results_aki[[name]]
+  data.frame(Phenotype = name, ACME = res$d0, ADE = res$z0, Mediation_Proportion = res$n.avg, CI_Lower = res$n.avg.ci[1], CI_Upper = res$n.avg.ci[2])
+}))
 
